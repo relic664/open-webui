@@ -144,7 +144,6 @@ from open_webui.constants import TASKS
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 
-
 DEFAULT_REASONING_TAGS = [
     ("<think>", "</think>"),
     ("<thinking>", "</thinking>"),
