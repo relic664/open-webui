@@ -333,6 +333,28 @@ def rag_template_split(template: str, context: str, query: str) -> tuple[str, st
             "WARNING: The RAG template does not contain the '[context]' or '{{CONTEXT}}' placeholder."
         )
 
+    if "<context>" in context and "</context>" in context:
+        log.debug(
+            "WARNING: Potential prompt injection attack: the RAG "
+            "context contains '<context>' and '</context>'. This might be "
+            "nothing, or the user might be trying to hack something."
+        )
+
+    # Detect whether the template has meaningful text after the context
+    # placeholder (ignoring closing </context> tags and whitespace).
+    # If so, the user has their own post-context instructions and we
+    # should not append a default citation reminder.
+    has_post_context_text = False
+    for placeholder in ("{{CONTEXT}}", "[context]"):
+        idx = template.find(placeholder)
+        if idx != -1:
+            after = template[idx + len(placeholder) :]
+            # Strip any </context> closing tag and whitespace
+            after = re.sub(r"\s*</context>\s*", "", after).strip()
+            if after:
+                has_post_context_text = True
+            break
+
     # Protect [query]/{{QUERY}} tokens that appear in the context string
     query_placeholders = []
     if "[query]" in context:
@@ -361,7 +383,23 @@ def rag_template_split(template: str, context: str, query: str) -> tuple[str, st
         template = template.replace(query_placeholder, original_placeholder)
 
     instructions = template.strip()
-    context_block = f"<context>\n{context}\n</context>"
+
+    # Build the context block for the user message.
+    # When the template has no post-context instructions, add a concise
+    # citation reminder adjacent to the sources. Models cite more
+    # reliably when a short directive appears next to the source data.
+    # If the user provided their own post-context text in the template,
+    # assume they have their own citation instructions and skip ours.
+    if has_post_context_text:
+        context_block = f"<context>\n{context}\n</context>"
+    else:
+        context_block = (
+            "<context>\n"
+            f"{context}\n"
+            "</context>\n"
+            "Use the sources above to answer. Cite every relevant source "
+            "using its [id] (e.g. [1], [2])."
+        )
 
     return instructions, context_block
 
