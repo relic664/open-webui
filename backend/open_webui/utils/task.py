@@ -333,12 +333,6 @@ def rag_template_split(template: str, context: str, query: str) -> tuple[str, st
             "WARNING: The RAG template does not contain the '[context]' or '{{CONTEXT}}' placeholder."
         )
 
-    if "<context>" in context and "</context>" in context:
-        log.debug(
-            "WARNING: Potential prompt injection attack: the RAG "
-            "context contains '<context>' and '</context>'. This might be "
-            "nothing, or the user might be trying to hack something."
-        )
 
     # Protect [query]/{{QUERY}} tokens that appear in the context string
     query_placeholders = []
