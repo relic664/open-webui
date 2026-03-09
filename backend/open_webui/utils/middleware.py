@@ -79,6 +79,7 @@ from open_webui.utils.chat import generate_chat_completion
 from open_webui.utils.task import (
     get_task_model_id,
     rag_template,
+    rag_template_split,
     tools_function_calling_generation_template,
 )
 from open_webui.utils.misc import (
@@ -132,6 +133,7 @@ from open_webui.env import (
     ENABLE_REALTIME_CHAT_SAVE,
     ENABLE_QUERIES_CACHE,
     RAG_SYSTEM_CONTEXT,
+    RAG_CONSERVE_KVCACHE,
     ENABLE_FORWARD_USER_INFO_HEADERS,
     FORWARD_SESSION_INFO_HEADER_CHAT_ID,
     FORWARD_SESSION_INFO_HEADER_MESSAGE_ID,
@@ -941,11 +943,23 @@ def apply_source_context_to_messages(
         return messages
 
     if RAG_SYSTEM_CONTEXT:
-        return add_or_update_system_message(
-            rag_template(request.app.state.config.RAG_TEMPLATE, context, user_message),
-            messages,
-            append=True,
-        )
+        if RAG_CONSERVE_KVCACHE:
+            # Split the template: instructions go to system (cacheable),
+            # context goes to user (varies per query).
+            instructions, context_block = rag_template_split(
+                request.app.state.config.RAG_TEMPLATE, context, user_message
+            )
+            messages = add_or_update_system_message(instructions, messages, append=True)
+            messages = add_or_update_user_message(context_block, messages, append=False)
+            return messages
+        else:
+            return add_or_update_system_message(
+                rag_template(
+                    request.app.state.config.RAG_TEMPLATE, context, user_message
+                ),
+                messages,
+                append=True,
+            )
     else:
         return add_or_update_user_message(
             rag_template(request.app.state.config.RAG_TEMPLATE, context, user_message),
@@ -1949,8 +1963,10 @@ async def chat_completion_files_handler(
                 request=request,
                 items=files,
                 queries=queries,
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
-                    query, prefix=prefix, user=user
+                embedding_function=lambda query, prefix: (
+                    request.app.state.EMBEDDING_FUNCTION(
+                        query, prefix=prefix, user=user
+                    )
                 ),
                 k=request.app.state.config.TOP_K,
                 reranking_function=(
@@ -4506,12 +4522,32 @@ async def streaming_chat_response_handler(response, ctx):
                             )
                             source_context = source_context.strip()
                             if source_context:
-                                rag_content = rag_template(
-                                    request.app.state.config.RAG_TEMPLATE,
-                                    source_context,
-                                    user_message,
-                                )
-                                if RAG_SYSTEM_CONTEXT:
+                                if RAG_SYSTEM_CONTEXT and RAG_CONSERVE_KVCACHE:
+                                    # Split: instructions to system (cacheable),
+                                    # context to user (varies per query).
+                                    instructions, context_block = rag_template_split(
+                                        request.app.state.config.RAG_TEMPLATE,
+                                        source_context,
+                                        user_message,
+                                    )
+                                    form_data["messages"] = (
+                                        add_or_update_system_message(
+                                            instructions,
+                                            form_data["messages"],
+                                            append=True,
+                                        )
+                                    )
+                                    form_data["messages"] = add_or_update_user_message(
+                                        context_block,
+                                        form_data["messages"],
+                                        append=False,
+                                    )
+                                elif RAG_SYSTEM_CONTEXT:
+                                    rag_content = rag_template(
+                                        request.app.state.config.RAG_TEMPLATE,
+                                        source_context,
+                                        user_message,
+                                    )
                                     form_data["messages"] = (
                                         add_or_update_system_message(
                                             rag_content,
@@ -4520,6 +4556,11 @@ async def streaming_chat_response_handler(response, ctx):
                                         )
                                     )
                                 else:
+                                    rag_content = rag_template(
+                                        request.app.state.config.RAG_TEMPLATE,
+                                        source_context,
+                                        user_message,
+                                    )
                                     form_data["messages"] = add_or_update_user_message(
                                         rag_content,
                                         form_data["messages"],

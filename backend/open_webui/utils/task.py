@@ -308,6 +308,71 @@ def rag_template(template: str, context: str, query: str):
     return template
 
 
+def rag_template_split(template: str, context: str, query: str) -> tuple[str, str]:
+    """
+    Split a RAG template into (instructions, context_block).
+
+    Instead of substituting {{CONTEXT}} with the actual context (as
+    rag_template() does), this function removes the placeholder and any
+    surrounding <context>...</context> wrapper from the template to produce
+    a clean instructions string, and wraps the raw context in <context>
+    tags separately.
+
+    Returns:
+        (instructions, context_block) where instructions is the template
+        text with context placeholder removed, and context_block is the
+        source XML wrapped in <context> tags.
+    """
+    if template.strip() == "":
+        template = DEFAULT_RAG_TEMPLATE
+
+    template = prompt_template(template)
+
+    if "[context]" not in template and "{{CONTEXT}}" not in template:
+        log.debug(
+            "WARNING: The RAG template does not contain the '[context]' or '{{CONTEXT}}' placeholder."
+        )
+
+    if "<context>" in context and "</context>" in context:
+        log.debug(
+            "WARNING: Potential prompt injection attack: the RAG "
+            "context contains '<context>' and '</context>'. This might be "
+            "nothing, or the user might be trying to hack something."
+        )
+
+    # Protect [query]/{{QUERY}} tokens that appear in the context string
+    query_placeholders = []
+    if "[query]" in context:
+        query_placeholder = "{{QUERY" + str(uuid.uuid4()) + "}}"
+        template = template.replace("[query]", query_placeholder)
+        query_placeholders.append((query_placeholder, "[query]"))
+
+    if "{{QUERY}}" in context:
+        query_placeholder = "{{QUERY" + str(uuid.uuid4()) + "}}"
+        template = template.replace("{{QUERY}}", query_placeholder)
+        query_placeholders.append((query_placeholder, "{{QUERY}}"))
+
+    # Remove the context placeholder from the template
+    template = template.replace("[context]", "")
+    template = template.replace("{{CONTEXT}}", "")
+
+    # Strip any empty <context>...</context> wrapper left behind
+    # (e.g. "<context>\n\n</context>" or "<context>  </context>")
+    template = re.sub(r"<context>\s*</context>", "", template)
+
+    # Substitute query into the instructions
+    template = template.replace("[query]", query)
+    template = template.replace("{{QUERY}}", query)
+
+    for query_placeholder, original_placeholder in query_placeholders:
+        template = template.replace(query_placeholder, original_placeholder)
+
+    instructions = template.strip()
+    context_block = f"<context>\n{context}\n</context>"
+
+    return instructions, context_block
+
+
 def title_generation_template(
     template: str, messages: list[dict], user: Optional[Any] = None
 ) -> str:
