@@ -361,13 +361,6 @@ def rag_template_split(template: str, context: str, query: str) -> tuple[str, st
         template = template.replace(query_placeholder, original_placeholder)
 
     instructions = template.strip()
-    # Add a bridging note so the model knows to look for context in the
-    # user message (since instructions and context are now in separate
-    # messages).
-    instructions += (
-        "\n\nThe retrieved context is provided within <context> tags"
-        " in the user's message."
-    )
     context_block = f"<context>\n{context}\n</context>"
 
     return instructions, context_block
