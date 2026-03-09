@@ -159,7 +159,7 @@ def truncate_content(content: str, max_chars: int, mode: str = "middletruncate")
         return content[-max_chars:]
     else:  # middletruncate
         half = max_chars // 2
-        return f"{content[:half]}...{content[-(max_chars - half):]}"
+        return f"{content[:half]}...{content[-(max_chars - half) :]}"
 
 
 def apply_content_filter(messages: list[dict], filter_str: str) -> list[dict]:
@@ -333,7 +333,6 @@ def rag_template_split(template: str, context: str, query: str) -> tuple[str, st
             "WARNING: The RAG template does not contain the '[context]' or '{{CONTEXT}}' placeholder."
         )
 
-
     # Protect [query]/{{QUERY}} tokens that appear in the context string
     query_placeholders = []
     if "[query]" in context:
@@ -362,6 +361,13 @@ def rag_template_split(template: str, context: str, query: str) -> tuple[str, st
         template = template.replace(query_placeholder, original_placeholder)
 
     instructions = template.strip()
+    # Add a bridging note so the model knows to look for context in the
+    # user message (since instructions and context are now in separate
+    # messages).
+    instructions += (
+        "\n\nThe retrieved context is provided within <context> tags"
+        " in the user's message."
+    )
     context_block = f"<context>\n{context}\n</context>"
 
     return instructions, context_block
